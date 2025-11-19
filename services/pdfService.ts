@@ -38,10 +38,11 @@ export const renderPageToImage = async (
   canvas.height = viewport.height;
   canvas.width = viewport.width;
 
+  // Cast params to any to bypass type definition mismatch (expecting 'canvas' vs 'canvasContext')
   await page.render({
     canvasContext: context,
     viewport: viewport,
-  }).promise;
+  } as any).promise;
 
   // Return PNG for lossless quality (better for diffing)
   return canvas.toDataURL('image/png');

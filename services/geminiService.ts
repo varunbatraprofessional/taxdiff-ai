@@ -6,10 +6,12 @@ const cleanBase64 = (dataUrl: string) => dataUrl.split(',')[1];
 export const analyzeDifferences = async (
   imageOld: string,
   imageNew: string,
-  diffImage: string,
+  diffImageOld: string,
+  diffImageNew: string,
+  maskImage: string,
   diffRegions: DiffRegion[],
   pageNumber: number
-): Promise<{ summary: string; changes: ChangeRecord[] }> => {
+): Promise<{ summary: string; changes: ChangeRecord[]; oldPageMarkdown: string; newPageMarkdown: string }> => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) throw new Error("API_KEY is not defined");
 
@@ -19,19 +21,24 @@ export const analyzeDifferences = async (
     You are a specialized IRS Tax Form Compliance Auditor.
     
     I have performed a computer-vision difference check on these documents.
-    Image 1: The OLD version.
+    
+    Inputs:
+    Image 1: The OLD version (Original).
     Image 2: The NEW version.
-    Image 3: The NEW version with detected changes highlighted in RED boxes and labeled with numeric IDs (e.g., "1", "2").
+    Image 3: The OLD version with detected changes highlighted in RED boxes and labeled with numeric IDs.
+    Image 4: The NEW version with detected changes highlighted in RED boxes and labeled with numeric IDs.
+    Image 5: A "Diff Mask" where magenta pixels indicate exactly where visual changes occurred.
 
     Your Task:
-    1. Look at Image 3 to see where the visual changes are.
-    2. Compare Image 1 and Image 2 at those specific locations to understand the context.
-    3. Group the visual change IDs into logical semantic changes. 
-       - For example, if boxes "1", "2", and "3" are all part of a new paragraph in the instructions, group them as one "Modification".
-       - If box "4" is a changed tax rate, that is a separate change.
-    4. Provide a structured list of these semantic changes.
-
-    CRITICAL: You must link each semantic change to the specific IDs found in Image 3.
+    1. VISUAL ANALYSIS: Look at Image 3, 4, and 5 to see where the visual changes are located. Compare the content within those areas in Image 1 and Image 2.
+    2. TRANSCRIPTION: Transcribe the FULL text content of Image 1 (Old) into Markdown format.
+    3. TRANSCRIPTION: Transcribe the FULL text content of Image 2 (New) into Markdown format.
+    4. CHANGES: Group the visual change IDs into logical semantic changes and provide a structured list.
+    5. LINKING: For each change, extract the specific text snippet that changed.
+       - "originalText": The exact text segment from your Old Markdown transcription that corresponds to this change.
+       - "revisedText": The exact text segment from your New Markdown transcription that corresponds to this change.
+       
+    CRITICAL: The "originalText" and "revisedText" fields MUST strictly match substrings within the generated "oldPageMarkdown" and "newPageMarkdown" respectively, so that I can programmatically highlight them.
   `;
 
   const responseSchema: Schema = {
@@ -40,6 +47,14 @@ export const analyzeDifferences = async (
       summary: {
         type: Type.STRING,
         description: "A concise executive summary of the changes on this page.",
+      },
+      oldPageMarkdown: {
+        type: Type.STRING,
+        description: "Full Markdown transcription of the Old Page.",
+      },
+      newPageMarkdown: {
+        type: Type.STRING,
+        description: "Full Markdown transcription of the New Page.",
       },
       changes: {
         type: Type.ARRAY,
@@ -51,17 +66,19 @@ export const analyzeDifferences = async (
             severity: { type: Type.STRING, enum: ["low", "medium", "high"] },
             description: { type: Type.STRING, description: "Detailed description of what changed" },
             section: { type: Type.STRING, description: "Relevant section header or line number" },
+            originalText: { type: Type.STRING, description: "The specific text content from the Old version." },
+            revisedText: { type: Type.STRING, description: "The specific text content from the New version." },
             relatedDiffIds: {
               type: Type.ARRAY,
               items: { type: Type.STRING },
               description: "List of numeric IDs (as strings) from Image 3 that belong to this change."
             }
           },
-          required: ["type", "severity", "description", "section", "relatedDiffIds"]
+          required: ["type", "severity", "description", "section", "relatedDiffIds", "originalText", "revisedText"]
         }
       }
     },
-    required: ["summary", "changes"]
+    required: ["summary", "changes", "oldPageMarkdown", "newPageMarkdown"]
   };
 
   try {
@@ -72,7 +89,9 @@ export const analyzeDifferences = async (
           { text: prompt },
           { inlineData: { mimeType: 'image/png', data: cleanBase64(imageOld) } },
           { inlineData: { mimeType: 'image/png', data: cleanBase64(imageNew) } },
-          { inlineData: { mimeType: 'image/jpeg', data: cleanBase64(diffImage) } }
+          { inlineData: { mimeType: 'image/jpeg', data: cleanBase64(diffImageOld) } },
+          { inlineData: { mimeType: 'image/jpeg', data: cleanBase64(diffImageNew) } },
+          { inlineData: { mimeType: 'image/png', data: cleanBase64(maskImage) } }
         ]
       },
       config: {
@@ -107,8 +126,6 @@ export const analyzeDifferences = async (
             if (boxes.length > 0) {
                 return { ...change, boundingBoxes: boxes };
             } else {
-                // Fallback: If AI hallucinated an ID, we have no box. 
-                // Ideally we shouldn't show a box, or maybe the AI made a mistake.
                 return change;
             }
         });

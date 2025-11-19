@@ -3,11 +3,12 @@ import Header from './components/Header';
 import FileUpload from './components/FileUpload';
 import ResultsPanel from './components/ResultsPanel';
 import BoundingBoxOverlay from './components/BoundingBoxOverlay';
+import MarkdownDiffView from './components/MarkdownDiffView';
 import { loadPdf, renderPageToImage } from './services/pdfService';
 import { analyzeDifferences } from './services/geminiService';
 import { detectVisualDifferences } from './services/diffService';
 import { PdfFile, ViewMode, AnalysisState } from './types';
-import { ChevronLeft, ChevronRight, Columns, Eye, ZoomIn, ZoomOut, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Columns, Eye, ZoomIn, ZoomOut, Loader2, FileText } from 'lucide-react';
 
 const App: React.FC = () => {
   // File State
@@ -20,11 +21,12 @@ const App: React.FC = () => {
   const [totalPages, setTotalPages] = useState<number>(1);
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.SIDE_BY_SIDE);
   const [opacity, setOpacity] = useState<number>(50);
-  const [zoom, setZoom] = useState<number>(0.8); // Start with a slightly smaller zoom to fit pages
+  const [zoom, setZoom] = useState<number>(0.8); 
   
   // Image Data (Base64)
   const [oldPageImage, setOldPageImage] = useState<string | null>(null);
   const [newPageImage, setNewPageImage] = useState<string | null>(null);
+  const [diffMaskImage, setDiffMaskImage] = useState<string | null>(null);
 
   // Analysis State
   const [analysis, setAnalysis] = useState<AnalysisState>({
@@ -52,12 +54,12 @@ const App: React.FC = () => {
       if (isOld) setOldFile(pdfFile);
       else setNewFile(pdfFile);
 
-      // Update total pages based on max of both files
       setTotalPages(prev => Math.max(prev, numPages));
       
-      // Reset to page 1 when loading new files
       setCurrentPage(1);
       setSelectedChangeId(null);
+      // Clear previous analysis for new files
+      setAnalysis(prev => ({ ...prev, results: {} }));
     } catch (e) {
       console.error("Failed to load PDF", e);
       alert("Failed to load PDF. Please ensure it is a valid PDF file.");
@@ -72,11 +74,9 @@ const App: React.FC = () => {
       if (!oldFile && !newFile) return;
       
       try {
-        // Render logic
         let oldImg = null;
         let newImg = null;
 
-        // Only render if the file exists and page is within range
         if (oldFile && currentPage <= oldFile.numPages) {
           oldImg = await renderPageToImage(oldFile.file, currentPage);
         }
@@ -86,8 +86,8 @@ const App: React.FC = () => {
 
         setOldPageImage(oldImg);
         setNewPageImage(newImg);
+        setDiffMaskImage(null); // Reset mask on page turn
         
-        // Clear selection on page turn
         setSelectedChangeId(null);
       } catch (err) {
         console.error("Error rendering pages", err);
@@ -100,17 +100,17 @@ const App: React.FC = () => {
   // Analysis Logic
   const runAnalysis = useCallback(async () => {
     if (!oldPageImage || !newPageImage) return;
-    if (analysis.results[currentPage]) return; // Already analyzed this page
+    if (analysis.results[currentPage]) return; 
 
     setAnalysis(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
-      // 1. Run Deterministic Diff First
-      // This calculates exact bounding boxes of visual changes
-      const { regions, diffImage } = await detectVisualDifferences(oldPageImage, newPageImage);
+      // 1. Run Deterministic Diff First (Keep visual diff as input to Gemini)
+      const { regions, diffImageOld, diffImageNew, maskImage } = await detectVisualDifferences(oldPageImage, newPageImage);
+      
+      setDiffMaskImage(maskImage);
 
       if (regions.length === 0) {
-        // No visual changes found, no need to ask AI
          setAnalysis(prev => ({
             ...prev,
             isLoading: false,
@@ -119,18 +119,26 @@ const App: React.FC = () => {
               [currentPage]: {
                 summary: "No visual differences detected on this page.",
                 changes: [],
-                pageNumber: currentPage
+                pageNumber: currentPage,
+                oldPageMarkdown: "",
+                newPageMarkdown: ""
               }
             }
           }));
           return;
       }
 
-      // 2. Send Images + Labeled Diff to Gemini
-      // Gemini explains what the visual changes mean
-      const result = await analyzeDifferences(oldPageImage, newPageImage, diffImage, regions, currentPage);
+      // 2. Send Images + Mask to Gemini
+      const result = await analyzeDifferences(
+        oldPageImage, 
+        newPageImage, 
+        diffImageOld, 
+        diffImageNew, 
+        maskImage,
+        regions, 
+        currentPage
+      );
       
-      // Add IDs to changes for hover effects (if not already present from Gemini output)
       const changesWithIds = result.changes.map((c, i) => ({
         ...c,
         id: c.id || `page-${currentPage}-change-${i}`
@@ -144,7 +152,9 @@ const App: React.FC = () => {
           [currentPage]: {
             summary: result.summary,
             changes: changesWithIds,
-            pageNumber: currentPage
+            pageNumber: currentPage,
+            oldPageMarkdown: result.oldPageMarkdown,
+            newPageMarkdown: result.newPageMarkdown
           }
         }
       }));
@@ -158,18 +168,15 @@ const App: React.FC = () => {
     }
   }, [currentPage, oldPageImage, newPageImage, analysis.results]);
 
-  // Render Content
   return (
     <div className="min-h-screen flex flex-col bg-slate-100 h-screen overflow-hidden">
       <Header />
 
-      {/* Main Workspace */}
       <div className="flex flex-1 overflow-hidden">
         
         {/* Left: File Selection & Viewer */}
         <div className="flex-1 flex flex-col relative">
           
-          {/* Setup View (if files missing) */}
           {(!oldFile || !newFile) && (
             <div className="absolute inset-0 z-20 bg-slate-50 flex items-center justify-center p-8">
               <div className="max-w-3xl w-full bg-white p-10 rounded-2xl shadow-xl relative">
@@ -238,6 +245,13 @@ const App: React.FC = () => {
               >
                 <Eye className="w-4 h-4" /> Overlay
               </button>
+               <button 
+                onClick={() => setViewMode(ViewMode.MARKDOWN)}
+                disabled={!analysis.results[currentPage]?.oldPageMarkdown}
+                className={`p-1.5 rounded text-xs font-medium flex items-center gap-1 transition-all ${viewMode === ViewMode.MARKDOWN ? 'bg-white shadow text-purple-600' : 'text-slate-500 hover:text-slate-700 disabled:opacity-50'}`}
+              >
+                <FileText className="w-4 h-4" /> Proof
+              </button>
             </div>
 
             <div className="flex items-center gap-2">
@@ -262,79 +276,103 @@ const App: React.FC = () => {
           {/* Viewer Area */}
           <div className="flex-1 bg-slate-100 overflow-auto p-8 flex justify-center relative">
             
-            <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top center', transition: 'transform 0.1s' }}>
-            
-              {/* View Mode: Side by Side */}
-              {viewMode === ViewMode.SIDE_BY_SIDE && (
-                <div className="flex gap-8 items-start">
-                  {oldPageImage ? (
-                    <div className="relative shadow-lg bg-white w-fit">
-                       <div className="absolute -top-6 left-0 text-xs font-bold text-slate-500">ORIGINAL</div>
-                       <img src={oldPageImage} className="max-w-[600px] border border-slate-200" alt="Old Page" />
-                    </div>
-                  ) : (
-                    <div className="w-[600px] h-[800px] bg-slate-200 rounded flex items-center justify-center text-slate-400">No Document</div>
-                  )}
-                  
-                  {newPageImage ? (
-                    <div className="relative shadow-lg bg-white w-fit">
-                       <div className="absolute -top-6 left-0 text-xs font-bold text-slate-500">NEW VERSION</div>
-                       <img src={newPageImage} className="max-w-[600px] border border-slate-200" alt="New Page" />
-                       {/* Overlay changes on the NEW document */}
-                       {analysis.results[currentPage] && (
-                          <BoundingBoxOverlay 
-                            changes={analysis.results[currentPage].changes} 
-                            hoveredChangeId={hoveredChangeId}
+            {/* MARKDOWN VIEW: No Scale transform, it handles its own scrolling */}
+            {viewMode === ViewMode.MARKDOWN ? (
+                <div className="w-full max-w-6xl h-full bg-white shadow-xl rounded-lg overflow-hidden">
+                     {analysis.results[currentPage] ? (
+                        <MarkdownDiffView 
+                            oldMarkdown={analysis.results[currentPage].oldPageMarkdown || ""}
+                            newMarkdown={analysis.results[currentPage].newPageMarkdown || ""}
+                            changes={analysis.results[currentPage].changes}
                             selectedChangeId={selectedChangeId}
-                            onHover={setHoveredChangeId}
-                            onSelect={setSelectedChangeId}
-                          />
-                       )}
-                    </div>
-                  ) : (
-                    <div className="w-[600px] h-[800px] bg-slate-200 rounded flex items-center justify-center text-slate-400">No Document</div>
-                  )}
-                </div>
-              )}
-
-              {/* View Mode: Overlay/Slider */}
-              {viewMode === ViewMode.OVERLAY && oldPageImage && newPageImage && (
-                <div className="relative shadow-2xl max-w-[600px] border border-slate-200 bg-white w-fit">
-                  {/* Base Layer (Old) */}
-                  <img src={oldPageImage} className="block w-full" alt="Old Page" />
-                  
-                  {/* Top Layer (New) with Opacity */}
-                  <div className="absolute inset-0" style={{ opacity: opacity / 100 }}>
-                    <img src={newPageImage} className="block w-full" alt="New Page" />
-                     {/* Only show bounding boxes if opacity is high enough to see the new doc clearly */}
-                     {opacity > 30 && analysis.results[currentPage] && (
-                        <BoundingBoxOverlay 
-                          changes={analysis.results[currentPage].changes} 
-                          hoveredChangeId={hoveredChangeId}
-                          selectedChangeId={selectedChangeId}
-                          onHover={setHoveredChangeId}
-                          onSelect={setSelectedChangeId}
+                            onSelectChange={setSelectedChangeId}
                         />
+                     ) : (
+                        <div className="flex h-full items-center justify-center text-slate-400">
+                            Run analysis to generate markdown proof.
+                        </div>
                      )}
-                  </div>
-
-                  {/* Slider Control - Floating */}
-                  <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur px-6 py-3 rounded-full shadow-xl border border-slate-200 flex items-center gap-4 z-50">
-                    <span className="text-xs font-bold text-slate-500">Old</span>
-                    <input 
-                      type="range" 
-                      min="0" 
-                      max="100" 
-                      value={opacity} 
-                      onChange={(e) => setOpacity(Number(e.target.value))}
-                      className="w-48 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                    />
-                    <span className="text-xs font-bold text-blue-600">New</span>
-                  </div>
                 </div>
-              )}
+            ) : (
+                /* IMAGE VIEWS: Uses Zoom Scale */
+                <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top center', transition: 'transform 0.1s' }}>
+                
+                  {/* View Mode: Side by Side */}
+                  {viewMode === ViewMode.SIDE_BY_SIDE && (
+                    <div className="flex gap-8 items-start">
+                      {/* Left PDF */}
+                      {oldPageImage ? (
+                        <div className="relative shadow-lg bg-white w-fit">
+                          <div className="absolute -top-6 left-0 text-xs font-bold text-slate-500">ORIGINAL</div>
+                          <img src={oldPageImage} className="max-w-[600px] border border-slate-200" alt="Old Page" />
+                          {analysis.results[currentPage] && (
+                              <BoundingBoxOverlay 
+                                changes={analysis.results[currentPage].changes} 
+                                hoveredChangeId={hoveredChangeId}
+                                selectedChangeId={selectedChangeId}
+                                onHover={setHoveredChangeId}
+                                onSelect={setSelectedChangeId}
+                              />
+                          )}
+                        </div>
+                      ) : (
+                        <div className="w-[600px] h-[800px] bg-slate-200 rounded flex items-center justify-center text-slate-400">No Document</div>
+                      )}
+                      
+                      {/* Right PDF */}
+                      {newPageImage ? (
+                        <div className="relative shadow-lg bg-white w-fit">
+                          <div className="absolute -top-6 left-0 text-xs font-bold text-slate-500">NEW VERSION</div>
+                          <img src={newPageImage} className="max-w-[600px] border border-slate-200" alt="New Page" />
+                          {analysis.results[currentPage] && (
+                              <BoundingBoxOverlay 
+                                changes={analysis.results[currentPage].changes} 
+                                hoveredChangeId={hoveredChangeId}
+                                selectedChangeId={selectedChangeId}
+                                onHover={setHoveredChangeId}
+                                onSelect={setSelectedChangeId}
+                              />
+                          )}
+                        </div>
+                      ) : (
+                        <div className="w-[600px] h-[800px] bg-slate-200 rounded flex items-center justify-center text-slate-400">No Document</div>
+                      )}
+                    </div>
+                  )}
 
-            </div>
+                  {/* View Mode: Overlay */}
+                  {viewMode === ViewMode.OVERLAY && oldPageImage && newPageImage && (
+                    <div className="relative shadow-2xl max-w-[600px] border border-slate-200 bg-white w-fit">
+                      <img src={oldPageImage} className="block w-full" alt="Old Page" />
+                      <div className="absolute inset-0" style={{ opacity: opacity / 100 }}>
+                        <img src={newPageImage} className="block w-full" alt="New Page" />
+                        {opacity > 30 && analysis.results[currentPage] && (
+                            <BoundingBoxOverlay 
+                              changes={analysis.results[currentPage].changes} 
+                              hoveredChangeId={hoveredChangeId}
+                              selectedChangeId={selectedChangeId}
+                              onHover={setHoveredChangeId}
+                              onSelect={setSelectedChangeId}
+                            />
+                        )}
+                      </div>
+                      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur px-6 py-3 rounded-full shadow-xl border border-slate-200 flex items-center gap-4 z-50">
+                        <span className="text-xs font-bold text-slate-500">Old</span>
+                        <input 
+                          type="range" 
+                          min="0" 
+                          max="100" 
+                          value={opacity} 
+                          onChange={(e) => setOpacity(Number(e.target.value))}
+                          className="w-48 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                        />
+                        <span className="text-xs font-bold text-blue-600">New</span>
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+            )}
           </div>
         </div>
 
@@ -347,6 +385,10 @@ const App: React.FC = () => {
             selectedChangeId={selectedChangeId}
             onHoverChange={setHoveredChangeId}
             onSelectChange={setSelectedChangeId}
+            onShowDiffMask={() => setViewMode(viewMode === ViewMode.MARKDOWN ? ViewMode.SIDE_BY_SIDE : ViewMode.MARKDOWN)}
+            isDiffMaskActive={viewMode === ViewMode.MARKDOWN}
+            oldPageImage={oldPageImage}
+            newPageImage={newPageImage}
           />
         </div>
 

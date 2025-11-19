@@ -15,18 +15,24 @@ export interface ChangeRecord {
   boundingBox?: number[]; 
   // New: Support multiple precise rects for a single logical change
   boundingBoxes?: number[][]; // Array of [ymin, xmin, ymax, xmax]
+  
+  // New: Textual proof
+  originalText?: string;
+  revisedText?: string;
 }
 
 export interface ComparisonResult {
   summary: string;
   changes: ChangeRecord[];
   pageNumber: number;
+  oldPageMarkdown?: string;
+  newPageMarkdown?: string;
 }
 
 export enum ViewMode {
   SIDE_BY_SIDE = 'SIDE_BY_SIDE',
   OVERLAY = 'OVERLAY',
-  DIFF_MASK = 'DIFF_MASK'
+  MARKDOWN = 'MARKDOWN'
 }
 
 export interface AnalysisState {
