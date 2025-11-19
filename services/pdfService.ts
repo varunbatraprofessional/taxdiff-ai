@@ -43,6 +43,6 @@ export const renderPageToImage = async (
     viewport: viewport,
   }).promise;
 
-  // Return high-quality JPEG
-  return canvas.toDataURL('image/jpeg', 0.9);
+  // Return PNG for lossless quality (better for diffing)
+  return canvas.toDataURL('image/png');
 };

@@ -5,6 +5,7 @@ import ResultsPanel from './components/ResultsPanel';
 import BoundingBoxOverlay from './components/BoundingBoxOverlay';
 import { loadPdf, renderPageToImage } from './services/pdfService';
 import { analyzeDifferences } from './services/geminiService';
+import { detectVisualDifferences } from './services/diffService';
 import { PdfFile, ViewMode, AnalysisState } from './types';
 import { ChevronLeft, ChevronRight, Columns, Eye, ZoomIn, ZoomOut, Loader2 } from 'lucide-react';
 
@@ -34,6 +35,7 @@ const App: React.FC = () => {
 
   // UI Interaction State
   const [hoveredChangeId, setHoveredChangeId] = useState<string | null>(null);
+  const [selectedChangeId, setSelectedChangeId] = useState<string | null>(null);
 
   // Handlers
   const handleFileSelect = async (file: File, isOld: boolean) => {
@@ -55,6 +57,7 @@ const App: React.FC = () => {
       
       // Reset to page 1 when loading new files
       setCurrentPage(1);
+      setSelectedChangeId(null);
     } catch (e) {
       console.error("Failed to load PDF", e);
       alert("Failed to load PDF. Please ensure it is a valid PDF file.");
@@ -83,6 +86,9 @@ const App: React.FC = () => {
 
         setOldPageImage(oldImg);
         setNewPageImage(newImg);
+        
+        // Clear selection on page turn
+        setSelectedChangeId(null);
       } catch (err) {
         console.error("Error rendering pages", err);
       }
@@ -99,12 +105,35 @@ const App: React.FC = () => {
     setAnalysis(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
-      const result = await analyzeDifferences(oldPageImage, newPageImage, currentPage);
+      // 1. Run Deterministic Diff First
+      // This calculates exact bounding boxes of visual changes
+      const { regions, diffImage } = await detectVisualDifferences(oldPageImage, newPageImage);
+
+      if (regions.length === 0) {
+        // No visual changes found, no need to ask AI
+         setAnalysis(prev => ({
+            ...prev,
+            isLoading: false,
+            results: {
+              ...prev.results,
+              [currentPage]: {
+                summary: "No visual differences detected on this page.",
+                changes: [],
+                pageNumber: currentPage
+              }
+            }
+          }));
+          return;
+      }
+
+      // 2. Send Images + Labeled Diff to Gemini
+      // Gemini explains what the visual changes mean
+      const result = await analyzeDifferences(oldPageImage, newPageImage, diffImage, regions, currentPage);
       
-      // Add IDs to changes for hover effects
+      // Add IDs to changes for hover effects (if not already present from Gemini output)
       const changesWithIds = result.changes.map((c, i) => ({
         ...c,
-        id: `page-${currentPage}-change-${i}`
+        id: c.id || `page-${currentPage}-change-${i}`
       }));
 
       setAnalysis(prev => ({
@@ -120,6 +149,7 @@ const App: React.FC = () => {
         }
       }));
     } catch (err: any) {
+      console.error(err);
       setAnalysis(prev => ({
         ...prev,
         isLoading: false,
@@ -238,7 +268,7 @@ const App: React.FC = () => {
               {viewMode === ViewMode.SIDE_BY_SIDE && (
                 <div className="flex gap-8 items-start">
                   {oldPageImage ? (
-                    <div className="relative shadow-lg bg-white">
+                    <div className="relative shadow-lg bg-white w-fit">
                        <div className="absolute -top-6 left-0 text-xs font-bold text-slate-500">ORIGINAL</div>
                        <img src={oldPageImage} className="max-w-[600px] border border-slate-200" alt="Old Page" />
                     </div>
@@ -247,7 +277,7 @@ const App: React.FC = () => {
                   )}
                   
                   {newPageImage ? (
-                    <div className="relative shadow-lg bg-white">
+                    <div className="relative shadow-lg bg-white w-fit">
                        <div className="absolute -top-6 left-0 text-xs font-bold text-slate-500">NEW VERSION</div>
                        <img src={newPageImage} className="max-w-[600px] border border-slate-200" alt="New Page" />
                        {/* Overlay changes on the NEW document */}
@@ -255,7 +285,9 @@ const App: React.FC = () => {
                           <BoundingBoxOverlay 
                             changes={analysis.results[currentPage].changes} 
                             hoveredChangeId={hoveredChangeId}
+                            selectedChangeId={selectedChangeId}
                             onHover={setHoveredChangeId}
+                            onSelect={setSelectedChangeId}
                           />
                        )}
                     </div>
@@ -267,7 +299,7 @@ const App: React.FC = () => {
 
               {/* View Mode: Overlay/Slider */}
               {viewMode === ViewMode.OVERLAY && oldPageImage && newPageImage && (
-                <div className="relative shadow-2xl max-w-[600px] border border-slate-200 bg-white">
+                <div className="relative shadow-2xl max-w-[600px] border border-slate-200 bg-white w-fit">
                   {/* Base Layer (Old) */}
                   <img src={oldPageImage} className="block w-full" alt="Old Page" />
                   
@@ -279,7 +311,9 @@ const App: React.FC = () => {
                         <BoundingBoxOverlay 
                           changes={analysis.results[currentPage].changes} 
                           hoveredChangeId={hoveredChangeId}
+                          selectedChangeId={selectedChangeId}
                           onHover={setHoveredChangeId}
+                          onSelect={setSelectedChangeId}
                         />
                      )}
                   </div>
@@ -310,7 +344,9 @@ const App: React.FC = () => {
             results={analysis.results[currentPage]} 
             isLoading={analysis.isLoading}
             hoveredChangeId={hoveredChangeId}
+            selectedChangeId={selectedChangeId}
             onHoverChange={setHoveredChangeId}
+            onSelectChange={setSelectedChangeId}
           />
         </div>
 

@@ -6,10 +6,19 @@ interface ResultsPanelProps {
   results: ComparisonResult | undefined;
   isLoading: boolean;
   onHoverChange: (id: string | null) => void;
+  onSelectChange: (id: string | null) => void;
   hoveredChangeId: string | null;
+  selectedChangeId: string | null;
 }
 
-const ResultsPanel: React.FC<ResultsPanelProps> = ({ results, isLoading, onHoverChange, hoveredChangeId }) => {
+const ResultsPanel: React.FC<ResultsPanelProps> = ({ 
+  results, 
+  isLoading, 
+  onHoverChange, 
+  onSelectChange,
+  hoveredChangeId,
+  selectedChangeId
+}) => {
   if (isLoading) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-8 text-slate-400 animate-pulse">
@@ -64,32 +73,40 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ results, isLoading, onHover
           <p className="text-sm text-slate-400 italic">No significant changes detected on this page.</p>
         )}
 
-        {results.changes.map((change) => (
-          <div 
-            key={change.id}
-            onMouseEnter={() => onHoverChange(change.id)}
-            onMouseLeave={() => onHoverChange(null)}
-            className={`
-              p-3 rounded-lg border transition-all duration-200 cursor-pointer
-              ${hoveredChangeId === change.id 
-                ? 'border-blue-400 bg-blue-50 shadow-md scale-[1.02]' 
-                : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'
-              }
-            `}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                {getIcon(change.type)}
-                <span className="text-xs font-semibold text-slate-700 capitalize">{change.type}</span>
+        {results.changes.map((change) => {
+          const isSelected = selectedChangeId === change.id;
+          const isHovered = hoveredChangeId === change.id;
+          
+          return (
+            <div 
+              key={change.id}
+              onMouseEnter={() => onHoverChange(change.id)}
+              onMouseLeave={() => onHoverChange(null)}
+              onClick={() => onSelectChange(isSelected ? null : change.id)}
+              className={`
+                p-3 rounded-lg border transition-all duration-200 cursor-pointer
+                ${isSelected 
+                  ? 'border-blue-500 bg-blue-50 shadow-md ring-1 ring-blue-200' 
+                  : isHovered
+                    ? 'border-blue-300 bg-slate-50 shadow-sm'
+                    : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'
+                }
+              `}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  {getIcon(change.type)}
+                  <span className="text-xs font-semibold text-slate-700 capitalize">{change.type}</span>
+                </div>
+                <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${getBadgeColor(change.severity)}`}>
+                  {change.severity}
+                </span>
               </div>
-              <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${getBadgeColor(change.severity)}`}>
-                {change.severity}
-              </span>
+              <p className="text-sm text-slate-800 font-medium mb-1">{change.section}</p>
+              <p className="text-xs text-slate-600 leading-relaxed">{change.description}</p>
             </div>
-            <p className="text-sm text-slate-800 font-medium mb-1">{change.section}</p>
-            <p className="text-xs text-slate-600 leading-relaxed">{change.description}</p>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

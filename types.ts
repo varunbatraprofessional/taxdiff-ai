@@ -11,7 +11,10 @@ export interface ChangeRecord {
   severity: 'low' | 'medium' | 'high';
   description: string;
   section: string; // e.g., "Line 12", "Header"
-  boundingBox?: number[]; // [ymin, xmin, ymax, xmax] in percentages (0-100)
+  // Deprecated single box, keeping for backward compat but preferring boundingBoxes
+  boundingBox?: number[]; 
+  // New: Support multiple precise rects for a single logical change
+  boundingBoxes?: number[][]; // Array of [ymin, xmin, ymax, xmax]
 }
 
 export interface ComparisonResult {
@@ -30,4 +33,9 @@ export interface AnalysisState {
   isLoading: boolean;
   error: string | null;
   results: Record<number, ComparisonResult>; // Key is page number
+}
+
+export interface DiffRegion {
+  id: string;
+  boundingBox: number[]; // [ymin, xmin, ymax, xmax] 0-100 scale
 }
