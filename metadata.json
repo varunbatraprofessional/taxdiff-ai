@@ -1,0 +1,5 @@
+{
+  "name": "Copy of TaxDiff AI",
+  "description": "A specialized tool for comparing complex IRS tax PDF forms. It renders documents, performs visual diffing, and uses Google Gemini AI to extract and summarize regulatory and layout changes with visual verification.",
+  "requestFramePermissions": []
+}
