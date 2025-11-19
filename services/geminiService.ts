@@ -30,15 +30,18 @@ export const analyzeDifferences = async (
     Image 5: A "Diff Mask" where magenta pixels indicate exactly where visual changes occurred.
 
     Your Task:
-    1. VISUAL ANALYSIS: Look at Image 3, 4, and 5 to see where the visual changes are located. Compare the content within those areas in Image 1 and Image 2.
-    2. TRANSCRIPTION: Transcribe the FULL text content of Image 1 (Old) into Markdown format.
-    3. TRANSCRIPTION: Transcribe the FULL text content of Image 2 (New) into Markdown format.
-    4. CHANGES: Group the visual change IDs into logical semantic changes and provide a structured list.
-    5. LINKING: For each change, extract the specific text snippet that changed.
-       - "originalText": The exact text segment from your Old Markdown transcription that corresponds to this change.
-       - "revisedText": The exact text segment from your New Markdown transcription that corresponds to this change.
-       
-    CRITICAL: The "originalText" and "revisedText" fields MUST strictly match substrings within the generated "oldPageMarkdown" and "newPageMarkdown" respectively, so that I can programmatically highlight them.
+    1. VISUAL ANALYSIS: Look at the provided images to identify visual changes.
+    2. CHANGE DETECTION: Group the visual changes into logical semantic changes (e.g. a whole paragraph update, a new line added).
+    3. ID ASSIGNMENT: Assign a unique, short ID to each semantic change (e.g., "c1", "c2", "c3").
+    4. MARKDOWN TRANSCRIPTION (OLD): Transcribe the full text of Image 1 (Old Version) into Markdown.
+       - CRITICAL: Wrap any text segments that were DELETED or MODIFIED in a specific XML tag using the assigned ID: <change id="c1">text content</change>.
+    5. MARKDOWN TRANSCRIPTION (NEW): Transcribe the full text of Image 2 (New Version) into Markdown.
+       - CRITICAL: Wrap any text segments that were ADDED or MODIFIED in a specific XML tag using the assigned ID: <change id="c1">text content</change>.
+    6. JSON OUTPUT: Provide the structured list of changes.
+       - Ensure the "id" field in the JSON object matches the "id" attribute used in the <change> tags.
+       - For "originalText" and "revisedText", extract the plain text content inside the tags.
+
+    Note: The <change> tags in the markdown are essential for the frontend to highlight the exact differences.
   `;
 
   const responseSchema: Schema = {
@@ -50,31 +53,31 @@ export const analyzeDifferences = async (
       },
       oldPageMarkdown: {
         type: Type.STRING,
-        description: "Full Markdown transcription of the Old Page.",
+        description: "Full Markdown of the Old Page, containing <change id='...'> tags for deleted/modified text.",
       },
       newPageMarkdown: {
         type: Type.STRING,
-        description: "Full Markdown transcription of the New Page.",
+        description: "Full Markdown of the New Page, containing <change id='...'> tags for added/modified text.",
       },
       changes: {
         type: Type.ARRAY,
         items: {
           type: Type.OBJECT,
           properties: {
-            id: { type: Type.STRING, description: "Unique ID for the semantic change (e.g. 'change-1')" },
+            id: { type: Type.STRING, description: "Unique ID (e.g. 'c1') matching the tags in markdown." },
             type: { type: Type.STRING, enum: ["addition", "deletion", "modification", "layout"] },
             severity: { type: Type.STRING, enum: ["low", "medium", "high"] },
             description: { type: Type.STRING, description: "Detailed description of what changed" },
             section: { type: Type.STRING, description: "Relevant section header or line number" },
-            originalText: { type: Type.STRING, description: "The specific text content from the Old version." },
-            revisedText: { type: Type.STRING, description: "The specific text content from the New version." },
+            originalText: { type: Type.STRING, description: "The plain text content from the Old version." },
+            revisedText: { type: Type.STRING, description: "The plain text content from the New version." },
             relatedDiffIds: {
               type: Type.ARRAY,
               items: { type: Type.STRING },
               description: "List of numeric IDs (as strings) from Image 3 that belong to this change."
             }
           },
-          required: ["type", "severity", "description", "section", "relatedDiffIds", "originalText", "revisedText"]
+          required: ["id", "type", "severity", "description", "section", "relatedDiffIds", "originalText", "revisedText"]
         }
       }
     },
