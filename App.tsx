@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/Header';
 import FileUpload from './components/FileUpload';
 import ResultsPanel from './components/ResultsPanel';
+import ChatPanel from './components/ChatPanel';
 import BoundingBoxOverlay from './components/BoundingBoxOverlay';
 import MarkdownDiffView from './components/MarkdownDiffView';
 import { loadPdf, renderPageToImage } from './services/pdfService';
@@ -22,6 +23,9 @@ const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.SIDE_BY_SIDE);
   const [opacity, setOpacity] = useState<number>(50);
   const [zoom, setZoom] = useState<number>(0.8); 
+  
+  // UI State
+  const [sidebarTab, setSidebarTab] = useState<'changes' | 'chat'>('changes');
   
   // Image Data (Base64)
   const [oldPageImage, setOldPageImage] = useState<string | null>(null);
@@ -378,18 +382,41 @@ const App: React.FC = () => {
 
         {/* Right Sidebar: Analysis */}
         <div className="w-80 lg:w-96 bg-white border-l shrink-0 z-10 shadow-xl relative flex flex-col">
-          <ResultsPanel 
-            results={analysis.results[currentPage]} 
-            isLoading={analysis.isLoading}
-            hoveredChangeId={hoveredChangeId}
-            selectedChangeId={selectedChangeId}
-            onHoverChange={setHoveredChangeId}
-            onSelectChange={setSelectedChangeId}
-            onShowDiffMask={() => setViewMode(viewMode === ViewMode.MARKDOWN ? ViewMode.SIDE_BY_SIDE : ViewMode.MARKDOWN)}
-            isDiffMaskActive={viewMode === ViewMode.MARKDOWN}
-            oldPageImage={oldPageImage}
-            newPageImage={newPageImage}
-          />
+          {/* Sidebar Tabs */}
+          <div className="flex border-b bg-white">
+            <button 
+                onClick={() => setSidebarTab('changes')} 
+                className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${sidebarTab === 'changes' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50' : 'text-slate-500 hover:bg-slate-50'}`}
+            >
+                Detected Changes
+            </button>
+            <button 
+                onClick={() => setSidebarTab('chat')} 
+                className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${sidebarTab === 'chat' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50' : 'text-slate-500 hover:bg-slate-50'}`}
+            >
+                AI Chat
+            </button>
+          </div>
+
+          {/* Sidebar Content */}
+          <div className="flex-1 overflow-hidden relative">
+              {sidebarTab === 'changes' ? (
+                  <ResultsPanel 
+                    results={analysis.results[currentPage]} 
+                    isLoading={analysis.isLoading}
+                    hoveredChangeId={hoveredChangeId}
+                    selectedChangeId={selectedChangeId}
+                    onHoverChange={setHoveredChangeId}
+                    onSelectChange={setSelectedChangeId}
+                    onShowDiffMask={() => setViewMode(viewMode === ViewMode.MARKDOWN ? ViewMode.SIDE_BY_SIDE : ViewMode.MARKDOWN)}
+                    isDiffMaskActive={viewMode === ViewMode.MARKDOWN}
+                    oldPageImage={oldPageImage}
+                    newPageImage={newPageImage}
+                  />
+              ) : (
+                  <ChatPanel results={analysis.results[currentPage]} />
+              )}
+          </div>
         </div>
 
       </div>
