@@ -7,7 +7,7 @@ export interface PdfFile {
 
 export interface ChangeRecord {
   id: string;
-  type: 'addition' | 'deletion' | 'modification' | 'layout';
+  type: 'addition' | 'deletion' | 'modification';
   severity: 'low' | 'medium' | 'high';
   description: string;
   section: string; // e.g., "Line 12", "Header"
@@ -39,6 +39,13 @@ export interface AnalysisState {
   isLoading: boolean;
   error: string | null;
   results: Record<number, ComparisonResult>; // Key is page number
+  // Partial results for streaming
+  partialResults?: Record<number, {
+    oldMarkdown?: string;
+    newMarkdown?: string;
+    isTranscribing?: boolean;
+    isAnalyzing?: boolean;
+  }>;
 }
 
 export interface DiffRegion {

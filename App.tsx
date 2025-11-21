@@ -6,7 +6,7 @@ import ChatPanel from './components/ChatPanel';
 import BoundingBoxOverlay from './components/BoundingBoxOverlay';
 import MarkdownDiffView from './components/MarkdownDiffView';
 import { loadPdf, renderPageToImage } from './services/pdfService';
-import { analyzeDifferences } from './services/geminiService';
+import { analyzeDifferences, transcribePageToMarkdown } from './services/geminiService';
 import { detectVisualDifferences } from './services/diffService';
 import { PdfFile, ViewMode, AnalysisState } from './types';
 import { ChevronLeft, ChevronRight, Columns, Eye, ZoomIn, ZoomOut, Loader2, FileText } from 'lucide-react';
@@ -114,6 +114,12 @@ const App: React.FC = () => {
       
       setDiffMaskImage(maskImage);
 
+      // 2. Transcribe both pages to markdown in parallel
+      const [oldMarkdown, newMarkdown] = await Promise.all([
+        transcribePageToMarkdown(oldPageImage),
+        transcribePageToMarkdown(newPageImage)
+      ]);
+
       if (regions.length === 0) {
          setAnalysis(prev => ({
             ...prev,
@@ -124,18 +130,18 @@ const App: React.FC = () => {
                 summary: "No visual differences detected on this page.",
                 changes: [],
                 pageNumber: currentPage,
-                oldPageMarkdown: "",
-                newPageMarkdown: ""
+                oldPageMarkdown: oldMarkdown,
+                newPageMarkdown: newMarkdown
               }
             }
           }));
           return;
       }
 
-      // 2. Send Images + Mask to Gemini
+      // 3. Analyze differences using the transcribed markdown
       const result = await analyzeDifferences(
-        oldPageImage, 
-        newPageImage, 
+        oldMarkdown,
+        newMarkdown,
         diffImageOld, 
         diffImageNew, 
         maskImage,
